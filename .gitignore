@@ -1,2 +1,6 @@
 .env
 .DS_Store
+__pycache__
+.venv
+.uv_cache
+__pycache__
