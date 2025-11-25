@@ -84,16 +84,20 @@ def build_occurrences(
 
 def calc_projection(
     acct_occurrences: Sequence[Tuple[date, int]], balance: int, cutoff: date
-) -> Tuple[int, date | None]:
+) -> Tuple[int, date | None, int]:
+    """Return (final balance, first drop date, min balance) within cutoff."""
     projected = balance
+    min_balance = balance
     drop_date: date | None = None
     for when, amount in acct_occurrences:
         if when > cutoff:
             break
         projected += amount
+        if projected < min_balance:
+            min_balance = projected
         if projected < 0 and drop_date is None:
             drop_date = when
-    return projected, drop_date
+    return projected, drop_date, min_balance
 
 
 def request_ynab(path: str, token: str) -> dict:
@@ -196,7 +200,7 @@ def compute_risk(
         balance = int(account.get("balance", 0))
         for win in sorted_windows:
             cutoff = today + timedelta(days=win)
-            projected, drop_date = calc_projection(acct_occurrences, balance, cutoff)
+            projected, drop_date, _ = calc_projection(acct_occurrences, balance, cutoff)
             if drop_date:
                 risks[win].append(
                     {
@@ -239,10 +243,12 @@ def print_report(risks: Dict[int, List[dict]]) -> None:
 def compute_transfers(
     accounts: Sequence[dict], occurrences: Dict[str, List[Tuple[date, int]]], windows: Sequence[int]
 ) -> Tuple[List[dict], List[dict]]:
-    """Suggest transfers using the longest window projection.
+    """Suggest transfers using the longest requested window projection.
 
     Only emit moves when there is enough surplus to fully cover the grouped deficit
-    (by earliest drop date). Partial coverage suggestions are skipped.
+    (by earliest drop date). Partial coverage suggestions are skipped. Source balances
+    are evaluated over the transfer window to avoid suggesting moves that would
+    push them negative after their own scheduled transactions.
     """
     if not windows:
         return [], []
@@ -255,9 +261,10 @@ def compute_transfers(
             continue
         acct_occurrences = occurrences.get(account["id"], [])
         balance = int(account.get("balance", 0))
-        projected, drop_date = calc_projection(acct_occurrences, balance, cutoff)
-        if projected > 0:
-            surpluses.append({"id": account["id"], "name": account.get("name", ""), "available": projected})
+        projected, drop_date, min_balance = calc_projection(acct_occurrences, balance, cutoff)
+        if min_balance > 0 and not drop_date:
+            # Safe transferable amount without causing a drop is the minimum balance during the window.
+            surpluses.append({"id": account["id"], "name": account.get("name", ""), "available": min_balance})
         elif projected < 0:
             drop_date = drop_date or today
             deficits.append(
