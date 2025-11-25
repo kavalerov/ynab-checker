@@ -1,0 +1,13 @@
+[project]
+name = "ynab-checker"
+version = "0.1.0"
+description = "CLI to flag YNAB accounts at risk of going negative based on scheduled transactions"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+ynab-checker = "ynab_checker:main"
+
+[tool.uv]
+package = false
